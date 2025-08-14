@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speed Test</title>
+    <style>
+        :root {
+            --bg-color: #141526;
+            --gauge-bg: rgba(0, 0, 0, 0.15);
+            --text-color: #ffffff;
+            --text-color-secondary: #a9aabc;
+            --accent-color: #00f0e0;
+            --font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            text-align: center;
+            overflow: hidden;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 600px;
+        }
+
+        #error-message {
+            color: #ff4d4d;
+            background-color: rgba(255, 77, 77, 0.1);
+            border: 1px solid rgba(255, 77, 77, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: none; /* Hidden by default */
+            text-align: left;
+        }
+
+        .speedometer {
+            position: relative;
+            width: 100%;
+            padding-bottom: 50%; /* 2:1 aspect ratio */
+            margin-bottom: 30px;
+        }
+
+        .gauge {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--gauge-bg);
+            border-top-left-radius: 300px 600px;
+            border-top-right-radius: 300px 600px;
+            overflow: hidden;
+            box-shadow: inset 0 5px 20px rgba(0,0,0,0.2);
+        }
+
+        .needle {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 4px;
+            height: 48%;
+            background: var(--accent-color);
+            transform-origin: bottom center;
+            transform: translateX(-50%) rotate(0deg);
+            transition: transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 0 10px var(--accent-color);
+            border-radius: 2px;
+            z-index: 5;
+        }
+
+        .go-button {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -20%);
+            width: 150px;
+            height: 150px;
+            background: var(--accent-color);
+            color: var(--bg-color);
+            border-radius: 50%;
+            border: 5px solid var(--bg-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2.5rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 10;
+        }
+
+        .go-button:hover:not(.testing) {
+            background: #fff;
+            color: var(--accent-color);
+            box-shadow: 0 0 30px var(--accent-color);
+        }
+
+        .go-button.testing {
+            background: #555;
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        .speed-display {
+            position: absolute;
+            bottom: 10%;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--accent-color);
+        }
+
+        .speed-unit {
+             font-size: 1rem;
+             margin-left: 5px;
+             vertical-align: bottom;
+        }
+
+        .results {
+            display: flex;
+            justify-content: space-around;
+        }
+
+        .result-item {
+            flex: 1;
+        }
+
+        .result-item h3 {
+            color: var(--text-color-secondary);
+            font-size: 1rem;
+            font-weight: normal;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .result-item p {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin: 0;
+        }
+
+        @media (max-width: 600px) {
+            .go-button {
+                width: 120px;
+                height: 120px;
+                font-size: 2rem;
+            }
+            .speed-display {
+                font-size: 2rem;
+            }
+            .result-item p {
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div id="error-message"></div>
+        <div class="speedometer">
+            <div class="gauge"></div>
+            <div class="needle" id="needle"></div>
+            <div class="go-button" id="go-button">GO</div>
+            <div class="speed-display">
+                <span id="speed-value">0.00</span>
+                <span class="speed-unit" id="speed-unit">Mbps</span>
+            </div>
+        </div>
+        <div class="results">
+            <div class="result-item">
+                <h3>Ping</h3>
+                <p><span id="ping-result">-</span> ms</p>
+            </div>
+            <div class="result-item">
+                <h3>Download</h3>
+                <p><span id="download-result">-</span> Mbps</p>
+            </div>
+            <div class="result-item">
+                <h3>Upload</h3>
+                <p><span id="upload-result">-</span> Mbps</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const goButton = document.getElementById('go-button');
+        const needle = document.getElementById('needle');
+        const speedValue = document.getElementById('speed-value');
+        const speedUnit = document.getElementById('speed-unit');
+        const pingResult = document.getElementById('ping-result');
+        const downloadResult = document.getElementById('download-result');
+        const uploadResult = document.getElementById('upload-result');
+        const errorMessage = document.getElementById('error-message');
+
+        const MAX_SPEED_MBPS = 100; // Max speed for the gauge
+
+        function updateSpeedometer(mbps) {
+            const speedRatio = Math.min(mbps / MAX_SPEED_MBPS, 1);
+            const rotation = (speedRatio * 180) - 90; // Rotate from -90deg (left) to 90deg (right)
+            needle.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
+            speedValue.textContent = mbps.toFixed(2);
+        }
+
+        function displayError(message) {
+            errorMessage.innerHTML = message; // Use innerHTML to allow for links if needed
+            errorMessage.style.display = 'block';
+        }
+
+        goButton.addEventListener('click', () => {
+            if (goButton.classList.contains('testing')) return;
+
+            goButton.classList.add('testing');
+            goButton.textContent = '...';
+            errorMessage.style.display = 'none';
+
+            // Reset UI
+            pingResult.textContent = '...';
+            downloadResult.textContent = '...';
+            uploadResult.textContent = '...';
+            updateSpeedometer(0);
+
+            let finalDownloadSpeed = 0;
+            let finalUploadSpeed = 0;
+
+            measurePing()
+                .then(ping => {
+                    pingResult.textContent = ping;
+                    return measureDownloadSpeed();
+                })
+                .then(dlSpeed => {
+                    finalDownloadSpeed = dlSpeed;
+                    downloadResult.textContent = dlSpeed.toFixed(2);
+                    updateSpeedometer(0); // Reset for upload test
+                    return measureUploadSpeed();
+                })
+                .then(ulSpeed => {
+                    finalUploadSpeed = ulSpeed;
+                    uploadResult.textContent = ulSpeed.toFixed(2);
+                })
+                .catch(error => {
+                    console.error(error);
+                    displayError('<b>Test Failed:</b> Could not connect to the test server. This may be due to your browser\'s security policy for local files or a network issue. For best results, please try using a different browser or running this file from a local web server.');
+                })
+                .finally(() => {
+                    goButton.classList.remove('testing');
+                    goButton.textContent = 'GO';
+                    updateSpeedometer(0);
+                });
+        });
+
+        function measurePing() {
+            return new Promise((resolve, reject) => {
+                const startTime = new Date().getTime();
+                fetch("https://raw.githubusercontent.com/sonoflilith/speedtest-net-monitor/master/speedtest_files/10MB.dat?n=" + self.crypto.randomUUID(), { method: "HEAD", mode: 'cors' })
+                    .then(() => {
+                        const endTime = new Date().getTime();
+                        resolve(endTime - startTime);
+                    })
+                    .catch(reject);
+            });
+        }
+
+        function measureDownloadSpeed() {
+            return new Promise((resolve, reject) => {
+                const startTime = new Date().getTime();
+                const url = "https://raw.githubusercontent.com/sonoflilith/speedtest-net-monitor/master/speedtest_files/10MB.dat?n=" + self.crypto.randomUUID();
+
+                fetch(url)
+                    .then(response => {
+                        if (!response.ok) reject(new Error(`HTTP error! status: ${response.status}`));
+                        return response.blob();
+                    })
+                    .then(blob => {
+                        const endTime = new Date().getTime();
+                        const duration = (endTime - startTime) / 1000;
+                        if (duration < 0.5) {
+                            updateSpeedometer(100.0);
+                            resolve(100.0);
+                            return;
+                        }
+                        const speedMbps = (blob.size * 8) / duration / 1024 / 1024;
+                        updateSpeedometer(speedMbps);
+                        resolve(speedMbps);
+                    })
+                    .catch(reject);
+            });
+        }
+
+        function measureUploadSpeed() {
+            return new Promise((resolve, reject) => {
+                const dataSize = 8 * 1024 * 1024; // 8MB
+                let data;
+                try {
+                    data = new Blob([new Uint8Array(dataSize)], { type: 'application/octet-stream' });
+                } catch (e) {
+                    return reject(new Error("Could not generate upload data."));
+                }
+
+                const startTime = new Date().getTime();
+                fetch('https://httpbin.org/post', { method: 'POST', body: data })
+                    .then(response => {
+                        if (!response.ok) reject(new Error(`HTTP error! status: ${response.status}`));
+                        const endTime = new Date().getTime();
+                        const duration = (endTime - startTime) / 1000;
+                         if (duration < 0.5) {
+                            updateSpeedometer(100.0);
+                            resolve(100.0);
+                            return;
+                        }
+                        const speedMbps = (data.size * 8) / duration / 1024 / 1024;
+                        updateSpeedometer(speedMbps);
+                        resolve(speedMbps);
+                    })
+                    .catch(reject);
+            });
+        }
+
+    </script>
+</body>
+</html>
